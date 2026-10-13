@@ -1,0 +1,17 @@
+.venv/
+.venv-clean/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.tox/
+dist/
+build/
+*.egg-info/
+.env
+__pycache__/
+documents/*
+!documents/.gitkeep
+data/vector_store_local/
+data/processed/
+*.checkpoint.jsonl

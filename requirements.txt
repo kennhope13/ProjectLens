@@ -1,0 +1,2 @@
+# Installs ProjectLens and its runtime dependencies in editable mode.
+-e .

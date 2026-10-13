@@ -1,0 +1,12 @@
+.git
+.venv
+.venv-clean
+__pycache__
+*.py[cod]
+.env
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data
+documents
+*.checkpoint.jsonl

@@ -1,0 +1,2 @@
+# Compatibility file for existing document-ingestion setup instructions.
+-r requirements.txt

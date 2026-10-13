@@ -1,0 +1,30 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      PROJECTLENS_LLM_MODEL: qwen3:8b
+    volumes:
+      - ./documents:/app/documents:ro
+      - ./data:/app/data
+    stdin_open: true
+    tty: true
+    command: ["python", "-m", "project_lens.retrieval.local_ollama_rag"]
+
+volumes:
+  ollama_models:

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "projectlens-rag"
+version = "0.1.0"
+description = "ProjectLens local RAG assistant for project documents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4",
+    "docx2txt",
+    "faiss-cpu",
+    "langchain-community",
+    "langchain-core",
+    "langchain-text-splitters",
+    "numpy",
+    "openpyxl",
+    "pandas",
+    "Pillow",
+    "python-pptx",
+    "pypdf",
+    "pytesseract",
+    "rank-bm25",
+    "sentence-transformers",
+    "xlrd",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
