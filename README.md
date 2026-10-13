@@ -115,6 +115,36 @@ git commit -m "Document and containerize ProjectLens deployment"
 
 ## Cấu trúc thư mục
 
+Sơ đồ dưới đây cho thấy các thành phần chính và cách dữ liệu đi qua ứng dụng:
+
+```mermaid
+flowchart TB
+    root["ProjectLens"]
+    root --> src["src/project_lens/"]
+    root --> docs["documents/<br/>Tài liệu đầu vào"]
+    root --> data["data/"]
+    root --> config["pyproject.toml · Dockerfile · compose.yaml"]
+
+    src --> ingestion["ingestion/<br/>Loaders · OCR · Chunking"]
+    src --> retrieval["retrieval/<br/>FAISS · Hybrid Search · RAG"]
+    src --> knowledge["knowledge/<br/>Chi phí · Kiểm kê · Catalog"]
+    src --> evaluation["evaluation/<br/>Đánh giá · Benchmark"]
+    src --> tools["tools/<br/>Manifest · Kiểm tra chunks"]
+
+    data --> processed["processed/<br/>chunks · manifest"]
+    data --> vector["vector_store_local/<br/>FAISS index · metadata"]
+
+    docs --> ingestion
+    ingestion --> processed
+    processed --> retrieval
+    retrieval --> vector
+    vector --> retrieval
+    knowledge --> retrieval
+    retrieval --> ollama["Ollama LLM"]
+```
+
+Các module Python được đặt trong `src/project_lens/`; các tài liệu nguồn và dữ liệu sinh ra ở ngoài package để dễ quản lý riêng.
+
 ```text
 projectlens/
 ├── src/project_lens/
