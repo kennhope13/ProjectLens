@@ -113,57 +113,6 @@ git commit -m "Document and containerize ProjectLens deployment"
 
 Để đẩy lên GitHub, repo local cần được cấu hình remote trước bằng URL repo của bạn (`git remote add origin <URL>`), sau đó push branch hiện tại.
 
-## Cấu trúc thư mục
-
-Sơ đồ dưới đây cho thấy các thành phần chính và cách dữ liệu đi qua ứng dụng:
-
-```mermaid
-flowchart TB
-    root["ProjectLens"]
-    root --> src["src/project_lens/"]
-    root --> docs["documents/<br/>Tài liệu đầu vào"]
-    root --> data["data/"]
-    root --> config["pyproject.toml · Dockerfile · compose.yaml"]
-
-    src --> ingestion["ingestion/<br/>Loaders · OCR · Chunking"]
-    src --> retrieval["retrieval/<br/>FAISS · Hybrid Search · RAG"]
-    src --> knowledge["knowledge/<br/>Chi phí · Kiểm kê · Catalog"]
-    src --> evaluation["evaluation/<br/>Đánh giá · Benchmark"]
-    src --> tools["tools/<br/>Manifest · Kiểm tra chunks"]
-
-    data --> processed["processed/<br/>chunks · manifest"]
-    data --> vector["vector_store_local/<br/>FAISS index · metadata"]
-
-    docs --> ingestion
-    ingestion --> processed
-    processed --> retrieval
-    retrieval --> vector
-    vector --> retrieval
-    knowledge --> retrieval
-    retrieval --> ollama["Ollama LLM"]
-```
-
-Các module Python được đặt trong `src/project_lens/`; các tài liệu nguồn và dữ liệu sinh ra ở ngoài package để dễ quản lý riêng.
-
-```text
-projectlens/
-├── src/project_lens/
-│   ├── ingestion/       # Đọc tài liệu và tạo chunks
-│   ├── retrieval/       # Tạo FAISS index và chạy RAG
-│   ├── knowledge/       # Chi phí, kiểm kê tài liệu, catalog
-│   ├── evaluation/      # Benchmark RAG và model
-│   ├── tools/           # Công cụ kiểm tra/chuẩn bị dữ liệu
-│   └── paths.py         # Đường dẫn dữ liệu dùng chung
-├── documents/           # Tài liệu đầu vào
-├── data/
-│   ├── processed/       # Chunks và dữ liệu xử lý
-│   └── vector_store_local/ # FAISS index và metadata
-├── pyproject.toml
-├── Dockerfile
-├── compose.yaml
-└── requirements.txt
-```
-
 ## Cài đặt và chạy (PowerShell)
 
 Yêu cầu Python 3.10 trở lên, Ollama và đủ bộ nhớ để chạy embedding/reranker. Tạo môi trường ảo rồi cài package:
