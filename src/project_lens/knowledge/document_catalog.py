@@ -9,14 +9,12 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List
 
-from project_lens.paths import VECTOR_STORE_DIR
+from project_lens.storage.postgres import load_chunk_records
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-STORE = VECTOR_STORE_DIR
-
 def build_document_catalog() -> Dict[str, Any]:
-    records = json.loads((STORE / "records.json").read_text(encoding="utf-8"))
+    records = load_chunk_records()
     catalog: Dict[str, Dict[str, Any]] = {}
     
     for r in records:

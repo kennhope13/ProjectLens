@@ -27,7 +27,7 @@ Chất lượng trả lời phụ thuộc vào tài liệu đã nạp, chất l�
 - Câu trả lời sinh từ ngữ cảnh truy xuất được.
 - Danh sách nguồn tài liệu và đoạn liên quan để kiểm tra.
 - Với một số câu hỏi được code xử lý trực tiếp, kết quả tính/tra cứu có cấu trúc, ví dụ dự án có chi phí cao nhất hoặc tìm file bản vẽ theo tên.
-- Dữ liệu trung gian: chunks trong `data/processed/` và FAISS index trong `data/vector_store_local/`.
+- Dữ liệu trung gian: chunks trong `data/processed/`; chunks, metadata và embeddings được lưu trong PostgreSQL.
 
 ## Quy trình từ input đến output
 
@@ -35,12 +35,12 @@ Chất lượng trả lời phụ thuộc vào tài liệu đã nạp, chất l�
 flowchart LR
     A[Tài liệu trong documents/] --> B[Loader trích xuất chữ và bảng]
     B --> C[Chia nội dung thành chunks]
-    C --> D[Embedding và FAISS index]
+    C --> D[Embedding và PostgreSQL pgvector]
     C --> E[BM25 index khi khởi tạo ứng dụng]
     Q[Câu hỏi tiếng Việt] --> P[Kiểm tra truy vấn có luật xử lý riêng]
     P -->|Chi phí / bản vẽ / phụ lục| V[Code tra cứu Excel hoặc tên file]
     P -->|Câu hỏi nội dung| R[Router phân loại GLOBAL hoặc LOCAL]
-    R -->|LOCAL| S[Tìm kiếm vector và BM25]
+    R -->|LOCAL| S[Tìm kiếm pgvector và BM25]
     R -->|GLOBAL| G[Catalog tài liệu và Ollama]
     D --> S
     E --> S
@@ -55,15 +55,15 @@ Các bước vận hành:
 
 1. Loader đọc file được hỗ trợ; nội dung Excel được tách theo sheet, ảnh được OCR nếu máy có Tesseract.
 2. Text splitter chia nội dung thành đoạn nhỏ có phần chồng lấn, giữ metadata như tên file và sheet.
-3. Sentence Transformers tạo embedding; FAISS lưu vector để tìm kiếm tương đồng. Chạy lại bước này khi tài liệu nguồn thay đổi.
-4. Khi khởi động chatbot, ứng dụng nạp FAISS, dựng BM25 từ chunks và nạp reranker.
+3. Sentence Transformers tạo embedding; PostgreSQL với pgvector lưu chunks, metadata và vector. Chạy lại bước này khi tài liệu nguồn thay đổi.
+4. Khi khởi động chatbot, ứng dụng đọc chunks từ PostgreSQL, dựng BM25 trong bộ nhớ và nạp reranker.
 5. Với câu hỏi thông thường, ứng dụng lấy ứng viên bằng tìm kiếm, reranker xếp hạng lại, rồi gửi các đoạn phù hợp cùng câu hỏi đến Ollama.
 6. Ứng dụng trả lời và liệt kê nguồn. Một số nhánh như tìm chi phí cao nhất đọc trực tiếp Excel thay vì dựa vào suy luận của LLM.
 
 ## Công nghệ và phạm vi
 
 - **GenAI:** LLM chạy qua Ollama, RAG, prompt hướng dẫn trả lời dựa trên nguồn.
-- **Retrieval:** FAISS cho vector index, BM25 cho tìm từ khóa, Cross-Encoder để rerank.
+- **Retrieval:** PostgreSQL + pgvector cho lưu trữ và tìm kiếm vector, BM25 cho tìm từ khóa, Cross-Encoder để rerank.
 - **Python stack:** Python, NumPy, Pandas, LangChain loaders/text splitters, Sentence Transformers.
 - **Models mặc định:** `qwen3:8b` qua Ollama; `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` để embedding; `BAAI/bge-reranker-v2-m3` để rerank.
 - **OCR:** Tesseract cho ảnh được hỗ trợ.
@@ -74,11 +74,11 @@ Các bước vận hành:
 
 ### Inference pipeline
 
-Inference được chia thành các bước có thể đo riêng: nạp FAISS/BM25, truy xuất ứng viên, rerank theo batch, rồi gọi Ollama sinh câu trả lời. Truy vấn chi phí, bản vẽ và phụ lục có nhánh xử lý theo dữ liệu thay vì gọi LLM. Có thể đổi model chat qua `PROJECTLENS_LLM_MODEL`, địa chỉ Ollama qua `OLLAMA_BASE_URL`, và thiết bị cho embedding/reranker qua `PROJECTLENS_DEVICE` (`cpu` mặc định; đặt `cuda` nếu môi trường PyTorch hỗ trợ GPU).
+Inference được chia thành các bước có thể đo riêng: truy vấn PostgreSQL/pgvector và BM25, truy xuất ứng viên, rerank theo batch, rồi gọi Ollama sinh câu trả lời. Truy vấn chi phí, bản vẽ và phụ lục có nhánh xử lý theo dữ liệu thay vì gọi LLM. Có thể đổi model chat qua `PROJECTLENS_LLM_MODEL`, địa chỉ Ollama qua `OLLAMA_BASE_URL`, và thiết bị cho embedding/reranker qua `PROJECTLENS_DEVICE` (`cpu` mặc định; đặt `cuda` nếu môi trường PyTorch hỗ trợ GPU).
 
 ### Tối ưu hiệu năng
 
-Pipeline giảm chi phí suy luận bằng cách chỉ rerank tập ứng viên từ FAISS/BM25 và chỉ đưa các đoạn đứng đầu vào LLM. Script benchmark đo p50/p95 latency và throughput của reranker theo batch size trên máy chạy thật; dùng kết quả để chọn batch size/device phù hợp. Benchmark hiện không giả định mức tăng tốc và chưa tự chuyển model sang ONNX hoặc quantization.
+Pipeline giảm chi phí suy luận bằng cách chỉ rerank tập ứng viên từ pgvector/BM25 và chỉ đưa các đoạn đứng đầu vào LLM. Script benchmark đo p50/p95 latency và throughput của reranker theo batch size trên máy chạy thật; dùng kết quả để chọn batch size/device phù hợp. Benchmark hiện không giả định mức tăng tốc và chưa tự chuyển model sang ONNX hoặc quantization.
 
 Chạy benchmark:
 
@@ -88,13 +88,14 @@ python -m project_lens.evaluation.model_optimization_benchmark --device cpu --ba
 
 ### Chạy bằng Docker Compose
 
-Docker chạy ứng dụng và Ollama thành hai service. Model Ollama được giữ trong named volume; `documents/` được mount chỉ đọc và `data/` được mount để giữ chunks/index trên máy host.
+Docker Compose chạy ứng dụng, PostgreSQL có pgvector và Ollama. Database và model Ollama được giữ trong named volume; `documents/` được mount chỉ đọc, còn chunks trung gian trong `data/` nằm trên máy host.
 
 ```powershell
-docker compose up -d ollama
+docker compose up -d db ollama
 docker compose exec ollama ollama pull qwen3:8b
+docker compose build app
 docker compose run --rm app python -m project_lens.ingestion.chunk_documents_all_fixed
-docker compose run --rm app python -m project_lens.retrieval.build_vector_store_local
+docker compose run --rm app python -m project_lens.retrieval.build_postgres_index
 docker compose run --rm app
 ```
 
@@ -126,19 +127,19 @@ flowchart TB
     root --> config["pyproject.toml · Dockerfile · compose.yaml"]
 
     src --> ingestion["ingestion/<br/>Loaders · OCR · Chunking"]
-    src --> retrieval["retrieval/<br/>FAISS · Hybrid Search · RAG"]
+    src --> retrieval["retrieval/<br/>pgvector · Hybrid Search · RAG"]
     src --> knowledge["knowledge/<br/>Chi phí · Kiểm kê · Catalog"]
     src --> evaluation["evaluation/<br/>Đánh giá · Benchmark"]
     src --> tools["tools/<br/>Manifest · Kiểm tra chunks"]
 
     data --> processed["processed/<br/>chunks · manifest"]
-    data --> vector["vector_store_local/<br/>FAISS index · metadata"]
+    data --> postgres["PostgreSQL + pgvector<br/>Chunks · metadata · embeddings"]
 
     docs --> ingestion
     ingestion --> processed
     processed --> retrieval
-    retrieval --> vector
-    vector --> retrieval
+    retrieval --> postgres
+    postgres --> retrieval
     knowledge --> retrieval
     retrieval --> ollama["Ollama LLM"]
 ```
@@ -149,24 +150,25 @@ Các module Python được đặt trong `src/project_lens/`; tài liệu nguồ
 projectlens/
 ├── src/project_lens/
 │   ├── ingestion/       # Đọc tài liệu và tạo chunks
-│   ├── retrieval/       # Tạo FAISS index và chạy RAG
+│   ├── retrieval/       # Tạo pgvector index và chạy RAG
 │   ├── knowledge/       # Chi phí, kiểm kê tài liệu, catalog
 │   ├── evaluation/      # Benchmark RAG và model
 │   ├── tools/           # Công cụ kiểm tra/chuẩn bị dữ liệu
 │   └── paths.py         # Đường dẫn dữ liệu dùng chung
 ├── documents/           # Tài liệu đầu vào
 ├── data/
-│   ├── processed/       # Chunks và dữ liệu xử lý
-│   └── vector_store_local/ # FAISS index và metadata
+│   └── processed/       # Chunks trung gian
 ├── pyproject.toml
 ├── Dockerfile
 ├── compose.yaml
 └── requirements.txt
 ```
 
+PostgreSQL là service riêng do Docker Compose khởi chạy; database lưu chunks, metadata và vector embeddings.
+
 ## Cài đặt và chạy (PowerShell)
 
-Yêu cầu Python 3.10 trở lên, Ollama và đủ bộ nhớ để chạy embedding/reranker. Tạo môi trường ảo rồi cài package:
+Yêu cầu Python 3.10 trở lên, Docker Compose, Ollama (qua Compose) và đủ bộ nhớ để chạy embedding/reranker. Tạo môi trường ảo rồi cài package:
 
 ```powershell
 py -m venv .venv
@@ -175,16 +177,18 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Tải model chat về Ollama và đặt tài liệu được phép xử lý vào `documents/`. Sau đó tạo chunks, lập chỉ mục và chạy chatbot:
+Khởi động PostgreSQL/Ollama, tải model chat về Ollama và đặt tài liệu được phép xử lý vào `documents/`. Sau đó tạo chunks, ghi embeddings vào PostgreSQL và chạy chatbot:
 
 ```powershell
-ollama pull qwen3:8b
+docker compose up -d db ollama
+docker compose exec ollama ollama pull qwen3:8b
+docker compose build app
 python -m project_lens.ingestion.chunk_documents_all_fixed
-python -m project_lens.retrieval.build_vector_store_local
+python -m project_lens.retrieval.build_postgres_index
 python -m project_lens.retrieval.local_ollama_rag
 ```
 
-Lần đầu chạy, Sentence Transformers tải model embedding và reranker. Nếu thêm/sửa/xóa tài liệu, chạy lại bước chunking và tạo FAISS index trước khi khởi động chatbot. Kiểm tra log chunking để biết file nào bị bỏ qua hoặc không đọc được.
+Lần đầu chạy, Sentence Transformers tải model embedding và reranker. PostgreSQL Compose dùng thông tin đăng nhập mặc định dành cho phát triển. Có thể sao chép `.env.example` thành `.env` rồi đặt `POSTGRES_PASSWORD` riêng trước khi chia sẻ hoặc deploy máy chủ. Nếu thêm/sửa/xóa tài liệu, chạy lại bước chunking và nạp lại PostgreSQL trước khi khởi động chatbot. Kiểm tra log chunking để biết file nào bị bỏ qua hoặc không đọc được.
 
 ## Giới hạn đã biết
 

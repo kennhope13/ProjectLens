@@ -2,7 +2,7 @@
 100% Local Enterprise Hybrid RAG Engine powered by Ollama.
 Stack:
 - LLM: qwen3:8b (or qwen3:4b) via Ollama
-- Dense Embeddings: Sentence Transformers / FAISS
+- Dense Embeddings: Sentence Transformers / PostgreSQL pgvector
 - Lexical Search: BM25Okapi
 - Cross-Encoder Re-Ranking: BAAI/bge-reranker-v2-m3
 - Structured lookups: project costs and document inventory
@@ -18,7 +18,6 @@ import urllib.request
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 
-import faiss
 import numpy as np
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
@@ -34,11 +33,13 @@ from project_lens.knowledge.document_inventory import (
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-from project_lens.paths import PROCESSED_DIR, VECTOR_STORE_DIR
+from project_lens.storage.postgres import (
+    load_chunk_records,
+    load_embedding_model,
+    search_chunk_ids,
+)
 
-ROOT = PROCESSED_DIR.parent.parent
-STORE = VECTOR_STORE_DIR
-CHUNKS_PATH = PROCESSED_DIR / "chunks.jsonl"
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 
@@ -95,16 +96,18 @@ class LocalEnterpriseRAG:
         self.device = os.getenv("PROJECTLENS_DEVICE", "cpu")
         print(f"🚀 Khởi tạo Local Enterprise RAG (LLM: {self.llm_model})...")
 
-        # Load records
-        if not (STORE / "records.json").exists():
-            raise FileNotFoundError(f"Không tìm thấy vector store tại {STORE}")
-        self.records = json.loads((STORE / "records.json").read_text(encoding="utf-8"))
-        print(f"Loaded {len(self.records)} records from store.")
+        # Load chunk text and metadata from PostgreSQL.
+        self.records = load_chunk_records()
+        if not self.records:
+            raise RuntimeError(
+                "PostgreSQL chưa có chunks. Hãy chạy bước chunking và "
+                "project_lens.retrieval.build_postgres_index trước."
+            )
+        self.record_indices = {record["id"]: i for i, record in enumerate(self.records)}
+        print(f"Loaded {len(self.records)} records from PostgreSQL.")
 
-        # FAISS
-        self.index = faiss.read_index(str(STORE / "index.faiss"))
         from sentence_transformers import SentenceTransformer
-        embedder_name = (STORE / "model_name.txt").read_text().strip()
+        embedder_name = load_embedding_model(DEFAULT_EMBEDDING_MODEL)
         self.embedder = SentenceTransformer(embedder_name, device=self.device)
 
         # BM25
@@ -250,10 +253,10 @@ HÃY TỔNG HỢP VÀ PHÂN TÍCH RÕ RÀNG TỔNG QUAN KHO TÀI LIỆU:"""}
         bm25_scores = self.bm25.get_scores(q_tokens)
         top_bm25_idx = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:8]
 
-        # 2. FAISS Dense (Lấy top 8 ứng viên sát nhất)
+        # 2. pgvector Dense Search (Lấy top 8 ứng viên sát nhất)
         q_vec = np.asarray(self.embedder.encode([question], normalize_embeddings=True), dtype=np.float32)
-        _, dense_pos = self.index.search(q_vec, 8)
-        top_dense_idx = [pos for pos in dense_pos[0] if pos != -1]
+        dense_ids = search_chunk_ids(q_vec[0], limit=8)
+        top_dense_idx = [self.record_indices[chunk_id] for chunk_id in dense_ids if chunk_id in self.record_indices]
 
         # 3. Candidate Merge (khoảng 8-12 ứng viên duy nhất)
         candidate_indices = list(dict.fromkeys(top_bm25_idx + top_dense_idx))

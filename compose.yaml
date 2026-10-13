@@ -1,4 +1,20 @@
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-projectlens}
+      POSTGRES_USER: ${POSTGRES_USER:-projectlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-projectlens}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -14,9 +30,12 @@ services:
   app:
     build: .
     depends_on:
+      db:
+        condition: service_healthy
       ollama:
         condition: service_healthy
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-projectlens}:${POSTGRES_PASSWORD:-projectlens}@db:5432/${POSTGRES_DB:-projectlens}
       OLLAMA_BASE_URL: http://ollama:11434
       PROJECTLENS_LLM_MODEL: qwen3:8b
     volumes:
@@ -28,3 +47,4 @@ services:
 
 volumes:
   ollama_models:
+  postgres_data:

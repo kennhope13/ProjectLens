@@ -1,16 +1,14 @@
-"""Build a local FAISS index without embedding API quota."""
+"""Embed prepared chunks and store them in PostgreSQL with pgvector."""
 import json
-from pathlib import Path
 
-import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from project_lens.paths import PROCESSED_DIR, VECTOR_STORE_DIR
+from project_lens.paths import PROCESSED_DIR
+from project_lens.storage.postgres import EMBEDDING_DIMENSIONS, replace_chunks
 
 
 CHUNKS = PROCESSED_DIR / "chunks.jsonl"
-STORE = VECTOR_STORE_DIR
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
@@ -24,14 +22,14 @@ def main():
     texts = [record["page_content"] for record in records]
     vectors = model.encode(texts, batch_size=32, show_progress_bar=True, normalize_embeddings=True)
     vectors = np.asarray(vectors, dtype=np.float32)
+    if vectors.shape[1] != EMBEDDING_DIMENSIONS:
+        raise ValueError(
+            f"Embedding dimension {vectors.shape[1]} does not match PostgreSQL schema "
+            f"dimension {EMBEDDING_DIMENSIONS}. Update the schema before changing embedding models."
+        )
 
-    STORE.mkdir(parents=True, exist_ok=True)
-    index = faiss.IndexFlatIP(vectors.shape[1])
-    index.add(vectors)
-    faiss.write_index(index, str(STORE / "index.faiss"))
-    (STORE / "records.json").write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
-    (STORE / "model_name.txt").write_text(MODEL_NAME, encoding="utf-8")
-    print(f"Saved {len(records)} local vectors to: {STORE}")
+    replace_chunks(records, vectors, MODEL_NAME)
+    print(f"Saved {len(records)} chunks and vectors to PostgreSQL using pgvector.")
 
 
 if __name__ == "__main__":
